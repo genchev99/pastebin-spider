@@ -37,7 +37,7 @@ mongoose.connect(process.env.DATABASE_URL, connectionOpts).then(async () => {
 
   await browser.close();
 
-  process.exit(0);
+  process.exit(1);
 }).catch(err => {
   console.error(err, "Database connection error");
 
