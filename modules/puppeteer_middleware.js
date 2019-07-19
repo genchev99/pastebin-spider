@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Closes the exiting page and then creates new page and load the page
+ * Closes the exiting page and then creates new page and load the page - prevents stacking memory
  * @param page Puppeteer page instance
  * @param url The url to be loaded
  * @param opts Load options

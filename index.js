@@ -20,10 +20,10 @@ const mongoose = require("mongoose");
 const connectionOpts = {useNewUrlParser: true};
 
 /* Modules */
-const middlware = require("./modules/puppeteer_middleware");
+const middleware = require("./modules/puppeteer_middleware");
 
 /* Models */
-const paste = require("./models/paste");
+const pasteModel = require("./models/paste");
 
 mongoose.connect(process.env.DATABASE_URL, connectionOpts).then(async () => {
   console.log(`Database connected on ${process.env.DATABASE_URL}`);
@@ -31,14 +31,80 @@ mongoose.connect(process.env.DATABASE_URL, connectionOpts).then(async () => {
   const browser = await createBrowser();
 
   const links = await getPasteLinks(browser);
-  console.log(links);
-  
+  for (const link of links) {
+    await scrapeContent(browser, link);
+  }
+
   await browser.close();
 
+  process.exit(0);
 }).catch(err => {
   console.error(err, "Database connection error");
 
   process.exit(1065);
+});
+
+/**
+ * Scrapes the paste content as well as the additional information
+ * @param browser
+ * @param link
+ * @returns {Promise<any>}
+ */
+const scrapeContent = (browser, link) => new Promise(async (resolve, reject) => {
+  try {
+    let page = await browser.newPage();
+
+    page = await middleware.pageGoto(page, link);
+
+    const paste = await page.evaluate((link) => {
+      let paste = {};
+      paste.content = document.querySelector("#paste_code").textContent.trim();
+      paste.url = link;
+
+      const infoLine = document
+          .querySelector(".paste_box_line2")
+          .textContent
+          .trim()
+          .replace(/\t/g, ' ')
+          .replace(/\n/g, ' ')
+          .replace(/ +(?= )/g,'')
+          .split(" ");
+
+      paste.information = {
+        pastedAt: document.querySelector(".paste_box_line2 span").getAttribute("title").trim(),
+        visits: parseInt(infoLine[infoLine.length - 2]),
+        author: infoLine[0] + infoLine[1],
+        syntax: document.querySelector("#code_buttons span:not(.go_right) a").textContent.trim()
+      };
+
+      return paste;
+    }, link);
+
+    await savePaste(paste);
+
+    await middleware.pageClose(page);
+
+    return resolve();
+  } catch (e) {
+    return reject(e);
+  }
+});
+
+/**
+ * Saves the new paste document
+ * @param paste
+ * @returns {Promise<any>}
+ */
+const savePaste = paste => new Promise(async (resolve) => {
+  try {
+    await pasteModel.findOneAndUpdate(paste, {}, {
+      upsert: true
+    });
+  } catch (e) {
+    console.error(e);
+  }
+
+  return resolve();
 });
 
 /**
@@ -66,7 +132,7 @@ const getPasteLinks = browser => new Promise(async (resolve, reject) => {
     /* Creating new page */
     let page = await browser.newPage();
 
-    page = await middlware.pageGoto(page, "https://pastebin.com/archive");
+    page = await middleware.pageGoto(page, "https://pastebin.com/archive");
 
     /* Getting all fresh links */
     const links = await page.evaluate(() => {
@@ -80,9 +146,11 @@ const getPasteLinks = browser => new Promise(async (resolve, reject) => {
       return links;
     });
 
+    /* Clearing resources */
+    await middleware.pageClose(page);
+
     return resolve(links);
   } catch (e) {
     return reject(e);
   }
 });
-
